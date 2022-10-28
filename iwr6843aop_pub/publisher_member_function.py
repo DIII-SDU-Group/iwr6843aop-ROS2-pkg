@@ -26,8 +26,6 @@ from sensor_msgs.msg import PointField
 from std_msgs.msg import Header
 import serial
 import struct
-import sys
-import signal
 
 
 DEBUG=False
@@ -35,21 +33,18 @@ MAGIC_WORD_ARRAY = np.array([2, 1, 4, 3, 6, 5, 8, 7])
 MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
 MSG_AZIMUT_STATIC_HEAT_MAP = 8
 ms_per_frame = 9999.0
-global shut_down
-shut_down = 0
-global data_port
+default_cfg = os.path.dirname(os.path.realpath(__file__)).replace("install/iwr6843aop_pub/lib/python3.8/site-packages/iwr6843aop_pub", "/src/iwr6843aop-ROS2-pkg/cfg_files") + "/" + "90deg_Group_18m_30Hz.cfg"
 data_port = '/dev/ttyUSB1'
-global cli_port
 cli_port = '/dev/ttyUSB0'
+
 
 class TI:
     def __init__(self, sdk_version=3.4,  cli_baud=115200,data_baud=921600, num_rx=4, num_tx=3,
-                 verbose=False, connect=True, mode=0,cli_loc='COM4',data_loc='COM3', cfg_path=os.path.dirname(os.path.realpath(__file__)).replace("install/iwr6843aop_pub/lib/python3.8/site-packages/iwr6843aop_pub", "/src/iwr6843aop_pub/cfg_files") + "/" + "xwr68xx_profile_30Hz.cfg"):
+                 verbose=False, connect=True, mode=0,cli_loc='COM4',data_loc='COM3'):
         super(TI, self).__init__()
         self.connected = False
         self.verbose = verbose
         self.mode = mode
-        self.cfg_path = cfg_path
         if connect:
             self.cli_port = serial.Serial(cli_loc, cli_baud)
             self.data_port = serial.Serial(data_loc, data_baud)
@@ -60,7 +55,6 @@ class TI:
         self.num_virtual_ant = num_rx * num_tx
         if mode == 0:
             self._initialize()
-    
     
     def _configure_radar(self, config):
         for i in config:
@@ -73,10 +67,8 @@ class TI:
                 print("Found frameCfg, milliseconds per frame is ", i.split()[5])
             time.sleep(0.01)
 
-    global cfg_path
-
-    def _initialize(self):
-        config = [line.rstrip('\r\n') for line in open(self.cfg_path)]
+    def _initialize(self, config_file=default_cfg):
+        config = [line.rstrip('\r\n') for line in open(config_file)]
         if self.connected:
             self._configure_radar(config)
 
@@ -137,7 +129,6 @@ class TI:
             None
 
         """
-        print("Shutting down sensor")
         self.cli_port.write('sensorStop\n'.encode())
         self.cli_port.close()
         self.data_port.close()
@@ -268,10 +259,10 @@ class TI:
 
 class Detected_Points:
 
-    def data_stream_iterator(self,cli_loc=cli_port,data_loc=data_port, cfg_path=os.path.dirname(os.path.realpath(__file__)).replace("install/iwr6843aop_pub/lib/python3.8/site-packages/iwr6843aop_pub", "/src/iwr6843aop_pub/cfg_files") + "/" + "xwr68xx_profile_30Hz.cfg"):
+    def data_stream_iterator(self,cli_loc=cli_port,data_loc=data_port):#'COM4',data_loc='COM3'):
         
         MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
-        ti=TI(cli_loc=cli_loc,data_loc=data_loc,cfg_path=cfg_path)
+        ti=TI(cli_loc=cli_loc,data_loc=data_loc)
         interval=ms_per_frame/1000
         data=b''
         warn=0
@@ -303,14 +294,8 @@ class Detected_Points:
             ret=points[:,:3]
 
             yield ret
-            
 
-            global shut_down
-
-            if shut_down == 1:
-                break
-
-
+        print("Close")
         ti.close()
 
 
@@ -320,7 +305,14 @@ xyz_mutex = False # True = locked, false = open
 class MinimalPublisher(Node):
     def __init__(self):
         super().__init__('iwr6843_pcl_pub')
-        
+        self.declare_parameter('cli_port', cli_port)
+        self.declare_parameter('data_port', data_port)
+        self.declare_parameter('cfg_path', default_cfg)
+        self.declare_parameter('mmwave_frame_id', "iwr6843_pcl")
+        self.cli_port = self.get_parameter('cli_port').value
+        self.data_port = self.get_parameter('data_port').value
+        self.cfg_path = self.get_parameter('cfg_path').value      
+        self.mmwave_frame_id = self.get_parameter('mmwave_frame_id').value
         self.publisher_ = self.create_publisher(PointCloud2, 'iwr6843_pcl', 10)
         timer_period = ms_per_frame/1000
         self.timer = self.create_timer(timer_period, self.timer_callback)
@@ -336,7 +328,7 @@ class MinimalPublisher(Node):
             pcl_msg = PointCloud2()
             pcl_msg.header = std_msgs.msg.Header()
             pcl_msg.header.stamp = self.get_clock().now().to_msg()
-            pcl_msg.header.frame_id = 'iwr6843_frame' ########################################
+            pcl_msg.header.frame_id = self.mmwave_frame_id
             pcl_msg.height = 1 # because unordered cloud
             pcl_msg.width = cloud_arr.shape[0] # number of points in cloud
             # define interpretation of pointcloud message (offset is in bytes, float32 is 4 bytes)
@@ -350,13 +342,13 @@ class MinimalPublisher(Node):
             pcl_msg.data = cloud_arr.tostring()
             self.publisher_.publish(pcl_msg)
             xyz_mutex = False
-            self.get_logger().info('Publishing %s points' % cloud_arr.shape[0] )
+            # self.get_logger().info('Publishing %s points' % cloud_arr.shape[0] )
 
 
 class iwr6843_interface(object):
-    def __init__(self, cfg_path):
+    def __init__(self):
         detected_points=Detected_Points()
-        self.stream = detected_points.data_stream_iterator(cli_port,data_port, cfg_path)#'COM4','COM3',1000)
+        self.stream = detected_points.data_stream_iterator(cli_port,data_port)#'COM4','COM3',1000)
 
     def update(self, i):
         data=next(self.stream)
@@ -372,62 +364,23 @@ class iwr6843_interface(object):
 
     def get_data(self):
         #a = iwr6843_interface()
-        #time.sleep(1)
         while 1:
             try:
                 self.update(0)
-                time.sleep(ms_per_frame/5000)   
+                time.sleep(ms_per_frame/1000)   
             except Exception as exception:
                 print(exception)
                 return
 
 
-def ctrlc_handler(signum, frame):
-    #res = input("Ctrl-c was pressed. Do you really want to exit? y/n ")
-    #if res == 'y':
-    global shut_down
-    shut_down = 1
-    time.sleep(0.25)
-    print("Exiting")
-    exit(1)
- 
 
-
-def main(argv=None):
-
-    global cfg_path
-    global data_port
-    global cli_port
-
-    orig_path = os.path.dirname(os.path.realpath(__file__))
-    sep = "install/"
-    separated = orig_path.split(sep, 1)[0]
-    cfg_path = separated + "src/iwr6843aop_pub/cfg_files/xwr68xx_profile_30Hz.cfg"
-    
-
-    if len(sys.argv) > 1:
-        cli_port = sys.argv[1]
-    if len(sys.argv) > 2:
-        data_port = sys.argv[2]
-    if len(sys.argv) > 3:
-        cfg_path = sys.argv[3]
-    
-    
-      
-    print("cli_port: ", cli_port)
-    print("data_port: ", data_port)
-    print("cfg_path: ", cfg_path)
-    
-    
-    signal.signal(signal.SIGINT, ctrlc_handler)
-    
+def main(args=None):
     #init
-    iwr6843_interface_node = iwr6843_interface(cfg_path)
+    iwr6843_interface_node = iwr6843_interface()
     get_data_thread = threading.Thread(target=iwr6843_interface_node.get_data)
     get_data_thread.start()
     time.sleep(1)
-    
-    rclpy.init()
+    rclpy.init(args=args)
     minimal_publisher = MinimalPublisher()
     rclpy.spin(minimal_publisher)
     #shutdown
@@ -438,4 +391,3 @@ def main(argv=None):
 
 if __name__ == '__main__':
     main()
-
