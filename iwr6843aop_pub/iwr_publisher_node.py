@@ -24,10 +24,17 @@ from .ti import TI
 ###############################################################################
 
 class IWRPublisher(Node):
-    def __init__(self):
-        super().__init__('mmwave')
+    def __init__(
+        self,
+        node_name="mmwave",
+        node_namespace="/sensor/mmwave"
+    ):
+        super().__init__(
+            node_name=node_name,
+            namespace=node_namespace
+        )
         
-        self.get_logger().info("IWRPublisher.__init__(): Starting node..")
+        self.get_logger().info("IWRPublisher.__init__(): Initializing node..")
 
         log_level = os.environ.get('MMWAVE_LOG_LEVEL')
         
@@ -47,7 +54,7 @@ class IWRPublisher(Node):
         
         self.publisher_ = self.create_publisher(PointCloud2, 'pcl', 10)
         
-        self.get_logger().info("IWRPublisher.__init__(): Node started")
+        self.get_logger().info("IWRPublisher.__init__(): Initializing started")
 
     def on_configure(
         self, 
@@ -245,8 +252,6 @@ def main(args=None):
     rclpy.init(args=args)
     
     node = IWRPublisher()
-    
-    node.get_logger().info("IWRPublisher node started.")
     
     executor = rclpy.executors.MultiThreadedExecutor()
     executor.add_node(node)
