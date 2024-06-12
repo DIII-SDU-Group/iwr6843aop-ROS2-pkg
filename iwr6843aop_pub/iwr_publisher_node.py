@@ -3,8 +3,7 @@
 ###############################################################################
 
 import rclpy
-# from rclpy.lifecycle import Node, State, TransitionCallbackReturn
-from rclpy.node import Node
+from rclpy.lifecycle import Node, State, TransitionCallbackReturn
 
 from std_msgs.msg import Header
 from sensor_msgs.msg import PointCloud2, PointField
@@ -25,9 +24,41 @@ from .ti import TI
 
 class IWRPublisher(Node):
     def __init__(self):
-        super().__init__('iwr6843_pcl_pub')
+        super().__init__('mmwave')
         
         self.get_logger().info("IWRPublisher.__init__(): Starting node..")
+
+        log_level = os.environ.get('MMWAVE_LOG_LEVEL')
+        
+        if log_level is not None:
+            log_level = log_level.upper()
+            
+            if log_level == 'DEBUG':
+                self.get_logger().set_level(rclpy.logging.LoggingSeverity.DEBUG)
+            elif log_level == 'INFO':
+                self.get_logger().set_level(rclpy.logging.LoggingSeverity.INFO)
+            elif log_level == 'WARN':
+                self.get_logger().set_level(rclpy.logging.LoggingSeverity.WARN)
+            elif log_level == 'ERROR':
+                self.get_logger().set_level(rclpy.logging.LoggingSeverity.ERROR)
+            elif log_level == 'FATAL':
+                self.get_logger().set_level(rclpy.logging.LoggingSeverity.FATAL)
+        
+        self.publisher_ = self.create_publisher(PointCloud2, 'pcl', 10)
+        
+        self.get_logger().info("IWRPublisher.__init__(): Node started with timer period " + str(timer_period) + " s")
+
+    def on_configure(
+        self, 
+        state: State
+    ) -> TransitionCallbackReturn:
+        self.get_logger().info("IWRPublisher.on_configure()")
+        
+        ret = super().on_configure(state)
+        
+        if ret != TransitionCallbackReturn.SUCCESS:
+            self.get_logger().error("IWRPublisher.on_configure(): Base class configuration failed")
+            return ret
         
         self.configurator = Configurator(self)
         
@@ -35,11 +66,6 @@ class IWRPublisher(Node):
         self.data_port = self.configurator.get_parameter('data_port').value
         self.cfg_path = self.configurator.get_parameter('cfg_path').value
         self.mmwave_frame_id = self.configurator.get_parameter('mmwave_frame_id').value
-        
-        # print("Cli port:", self.cli_port)
-        # print("Data port:", self.data_port)
-        # print("Cfg path:", self.cfg_path)
-        # print("Frame id:", self.mmwave_frame_id)
         
         self.get_logger().info("IWRPublisher.__init__(): Cli port: " + str(self.cli_port))
         self.get_logger().info("IWRPublisher.__init__(): Data port: " + str(self.data_port))
@@ -57,25 +83,123 @@ class IWRPublisher(Node):
             self.data_port,
             self.ti
         )
+
+        self.get_logger().info("IWRPublisher.on_configure(): Configuration complete")
+        
+        return TransitionCallbackReturn.SUCCESS
+    
+    def on_cleanup(
+        self,
+        state: State
+    ) -> TransitionCallbackReturn:
+        self.get_logger().info("IWRPublisher.on_cleanup()")
+        
+        ret = super().on_cleanup(state)
+        
+        if ret != TransitionCallbackReturn.SUCCESS:
+            self.get_logger().error("IWRPublisher.on_cleanup(): Base class cleanup failed")
+            return ret
+        
+        del self.iwr6843_interface
+        del self.ti
+        del self.cli_port
+        del self.data_port
+        del self.cfg_path
+        del self.mmwave_frame_id
+        del self.configurator
+        
+        self.get_logger().info("IWRPublisher.on_cleanup(): Cleanup complete")
+        
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_activate(
+        self,
+        state: State
+    ) -> TransitionCallbackReturn:
+        self.get_logger().info("IWRPublisher.on_activate()")
+        
+        ret = super().on_activate(state)
+        
+        if ret != TransitionCallbackReturn.SUCCESS:
+            self.get_logger().error("IWRPublisher.on_activate(): Base class activation failed")
+            return ret
         
         self.iwr6843_interface.start()
         
         time.sleep(1)
         
-        self.publisher_ = self.create_publisher(PointCloud2, 'pcl', 10)
         timer_period = self.ti.ms_per_frame/1000
         self.timer = self.create_timer(timer_period, self.timer_callback)
-        
-        self.get_logger().info("IWRPublisher.__init__(): Node started with timer period " + str(timer_period) + " s")
 
-    def stop(self):
+        self.get_logger().info("IWRPublisher.on_activate(): Activation complete")
+        
+        return TransitionCallbackReturn.SUCCESS
+    
+    def on_deactivate(
+        self,
+        state: State
+    ) -> TransitionCallbackReturn:
+        self.get_logger().info("IWRPublisher.on_deactivate()")
+        
+        ret = super().on_deactivate(state)
+        
+        if ret != TransitionCallbackReturn.SUCCESS:
+            self.get_logger().error("IWRPublisher.on_deactivate(): Base class deactivation failed")
+            return ret
+        
+        self.timer.cancel()
+        del self.timer
+        
         self.iwr6843_interface.stop()
+        
+        self.get_logger().info("IWRPublisher.on_deactivate(): Deactivation complete")
+        
+        return TransitionCallbackReturn.SUCCESS
+    
+    def on_shutdown(
+        self,
+        state: State
+    ) -> TransitionCallbackReturn:
+        self.get_logger().info("IWRPublisher.on_shutdown()")
+        
+        ret = super().on_shutdown(state)
+        
+        if ret != TransitionCallbackReturn.SUCCESS:
+            self.get_logger().error("IWRPublisher.on_shutdown(): Base class shutdown failed")
+            return ret
+        
+        if hasattr(self, "configurator"):
+            del self.configurator
+
+        if hasattr(self, "iwr6843_interface"):
+            self.iwr6843_interface.stop()
+            
+        def shutdown():
+            time.sleep(1)
+            
+            rclpy.shutdown()
+            
+        shutdown_thread = threading.Thread(target=shutdown)
+        shutdown_thread.start()
+        
+        return TransitionCallbackReturn.SUCCESS
+    
+    def on_error(
+        self,
+        state: State
+    ) -> TransitionCallbackReturn:
+        self.get_logger().fatal("IWRPublisher.on_error(): Error occured")
+        
+        raise RuntimeError("IWRPublisher.on_error(): Error occured")
 
     def destroy_node(self):
         print("IWRPublisher.destroy_node()")
         super().destroy_node()
         
         self.iwr6843_interface.stop()
+        del self.iwr6843_interface
+        
+        del self.configurator
 
     def timer_callback(self):
         self.get_logger().debug("IWRPublisher.timer_callback()")
@@ -118,10 +242,20 @@ class IWRPublisher(Node):
 
 def main(args=None):
     rclpy.init(args=args)
+    
     node = IWRPublisher()
     
+    node.get_logger().info("IWRPublisher node started.")
+    
+    executor = rclpy.executors.MultiThreadedExecutor()
+    executor.add_node(node)
+    
     try:
-        rclpy.spin(node)
+        executor.spin()
+        node.destroy_node()
+        
+        if rclpy.ok():
+            rclpy.shutdown()
         
     except KeyboardInterrupt:
         print("IWRPublisher.main(): Keyboard interrupt, destroying node..")
