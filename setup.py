@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-			'pcl_pub = iwr6843aop_pub.publisher_member_function:main',
+			'pcl_pub = iwr6843aop_pub.iwr_publisher_node:main',
         ],
     },
 )

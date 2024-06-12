@@ -1,50 +1,40 @@
-# Copyright 2016 Open Source Robotics Foundation, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+###############################################################################
+# Imports
+###############################################################################
 
-#from detected_points import Detected_Points
-import rclpy
-from rclpy.node import Node
-import os
 import time
-import numpy as np
-import threading
-from std_msgs.msg import Float64
-import std_msgs.msg
-from sensor_msgs.msg import PointCloud2
-from sensor_msgs.msg import PointField
-from std_msgs.msg import Header
-import serial
 import struct
 
+import numpy as np
+import serial
 
-DEBUG=False
-MAGIC_WORD_ARRAY = np.array([2, 1, 4, 3, 6, 5, 8, 7])
-MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
-MSG_AZIMUT_STATIC_HEAT_MAP = 8
-ms_per_frame = 9999.0
-default_cfg = os.path.dirname(os.path.realpath(__file__)).replace("install/iwr6843aop_pub/lib/python3.8/site-packages/iwr6843aop_pub", "/src/iwr6843aop-ROS2-pkg/cfg_files") + "/" + "90deg_Group_18m_30Hz.cfg"
-data_port = '/dev/ttyUSB1'
-cli_port = '/dev/ttyUSB0'
+from .constants import MAGIC_WORD
 
+###############################################################################
+# Class
+###############################################################################
 
 class TI:
-    def __init__(self, sdk_version=3.4,  cli_baud=115200,data_baud=921600, num_rx=4, num_tx=3,
-                 verbose=False, connect=True, mode=0,cli_loc='COM4',data_loc='COM3'):
+    def __init__(
+        self, 
+        cli_loc,
+        data_loc,
+        config_file,
+        sdk_version=3.4,
+        cli_baud=115200,
+        data_baud=921600,
+        num_rx=4,
+        num_tx=3,
+        verbose=False, 
+        connect=True, 
+        mode=0,
+    ):
         super(TI, self).__init__()
+        
         self.connected = False
         self.verbose = verbose
         self.mode = mode
+        self.config_file = config_file
         if connect:
             self.cli_port = serial.Serial(cli_loc, cli_baud)
             self.data_port = serial.Serial(data_loc, data_baud)
@@ -53,6 +43,7 @@ class TI:
         self.num_rx_ant = num_rx
         self.num_tx_ant = num_tx
         self.num_virtual_ant = num_rx * num_tx
+        self._ms_per_frame = 9999
         if mode == 0:
             self._initialize()
     
@@ -62,13 +53,16 @@ class TI:
             print(i)
             idx = i.find('frameCfg')
             if idx != -1:
-                global ms_per_frame
-                ms_per_frame = float(i.split()[5])
+                self._ms_per_frame = float(i.split()[5])
                 print("Found frameCfg, milliseconds per frame is ", i.split()[5])
             time.sleep(0.01)
+            
+    @property
+    def ms_per_frame(self):
+        return self._ms_per_frame
 
-    def _initialize(self, config_file=default_cfg):
-        config = [line.rstrip('\r\n') for line in open(config_file)]
+    def _initialize(self):
+        config = [line.rstrip('\r\n') for line in open(self.config_file)]
         if self.connected:
             self._configure_radar(config)
 
@@ -255,139 +249,3 @@ class TI:
             return data, idx + (items * size[form])
         except:
             return None
-
-
-class Detected_Points:
-
-    def data_stream_iterator(self,cli_loc=cli_port,data_loc=data_port):#'COM4',data_loc='COM3'):
-        
-        MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
-        ti=TI(cli_loc=cli_loc,data_loc=data_loc)
-        interval=ms_per_frame/1000
-        data=b''
-        warn=0
-        while 1:
-
-            time.sleep(interval)
-            byte_buffer=ti._read_buffer()
-            
-            if(len(byte_buffer)==0):
-                warn+=1
-            else:
-                warn=0
-            if(warn>100):#连续10次空读取则退出 / after 10 empty frames
-                print("Wrong")
-                break
-        
-            data+=byte_buffer
-        
-            try:
-                idx1 = data.index(MAGIC_WORD)   
-                idx2=data.index(MAGIC_WORD,idx1+1)
-
-            except:
-                continue
-
-            datatmp=data[idx1:idx2]
-            data=data[idx2:]
-            points=ti._process_detected_points(byte_buffer)
-            ret=points[:,:3]
-
-            yield ret
-
-        print("Close")
-        ti.close()
-
-
-xyzdata = []
-xyz_mutex = False # True = locked, false = open
-
-class MinimalPublisher(Node):
-    def __init__(self):
-        super().__init__('iwr6843_pcl_pub')
-        self.declare_parameter('cli_port', cli_port)
-        self.declare_parameter('data_port', data_port)
-        self.declare_parameter('cfg_path', default_cfg)
-        self.declare_parameter('mmwave_frame_id', "iwr6843_pcl")
-        self.cli_port = self.get_parameter('cli_port').value
-        self.data_port = self.get_parameter('data_port').value
-        self.cfg_path = self.get_parameter('cfg_path').value      
-        self.mmwave_frame_id = self.get_parameter('mmwave_frame_id').value
-        self.publisher_ = self.create_publisher(PointCloud2, 'iwr6843_pcl', 10)
-        timer_period = ms_per_frame/1000
-        self.timer = self.create_timer(timer_period, self.timer_callback)
-
-
-    def timer_callback(self):
-        global xyz_mutex, xyzdata
-        while xyz_mutex == True:
-            pass
-        if not xyzdata == []: 
-            xyz_mutex == True
-            cloud_arr = np.asarray(xyzdata).astype(np.float32) # on form [[x,y,z],[x,y,z],[x,y,z]..]
-            pcl_msg = PointCloud2()
-            pcl_msg.header = std_msgs.msg.Header()
-            pcl_msg.header.stamp = self.get_clock().now().to_msg()
-            pcl_msg.header.frame_id = self.mmwave_frame_id
-            pcl_msg.height = 1 # because unordered cloud
-            pcl_msg.width = cloud_arr.shape[0] # number of points in cloud
-            # define interpretation of pointcloud message (offset is in bytes, float32 is 4 bytes)
-            pcl_msg.fields =   [PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
-                                PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
-                                PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1)]
-            #cloud_msg.is_bigendian = False # assumption        
-            pcl_msg.point_step = cloud_arr.dtype.itemsize*cloud_arr.shape[1] #size of 1 point (float32 * dimensions (3 when xyz))
-            pcl_msg.row_step = pcl_msg.point_step*cloud_arr.shape[0] # only 1 row because unordered
-            pcl_msg.is_dense = True
-            pcl_msg.data = cloud_arr.tostring()
-            self.publisher_.publish(pcl_msg)
-            xyz_mutex = False
-            # self.get_logger().info('Publishing %s points' % cloud_arr.shape[0] )
-
-
-class iwr6843_interface(object):
-    def __init__(self):
-        detected_points=Detected_Points()
-        self.stream = detected_points.data_stream_iterator(cli_port,data_port)#'COM4','COM3',1000)
-
-    def update(self, i):
-        data=next(self.stream)
-        global xyz_mutex, xyzdata
-        while xyz_mutex == True:
-            pass
-        xyz_mutex = True
-        #print("New set of points")
-        #print(data)
-        xyzdata = data
-        xyz_mutex = False
-
-
-    def get_data(self):
-        #a = iwr6843_interface()
-        while 1:
-            try:
-                self.update(0)
-                time.sleep(ms_per_frame/1000)   
-            except Exception as exception:
-                print(exception)
-                return
-
-
-
-def main(args=None):
-    #init
-    iwr6843_interface_node = iwr6843_interface()
-    get_data_thread = threading.Thread(target=iwr6843_interface_node.get_data)
-    get_data_thread.start()
-    time.sleep(1)
-    rclpy.init(args=args)
-    minimal_publisher = MinimalPublisher()
-    rclpy.spin(minimal_publisher)
-    #shutdown
-    get_data_thread.join()
-    minimal_publisher.destroy_node()
-    rclpy.shutdown()
-
-
-if __name__ == '__main__':
-    main()

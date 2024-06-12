@@ -1,0 +1,3 @@
+import numpy as np
+
+MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
