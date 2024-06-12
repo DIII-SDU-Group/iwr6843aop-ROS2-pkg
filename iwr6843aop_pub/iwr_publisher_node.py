@@ -12,6 +12,7 @@ from iii_drone_configuration.configurator import Configurator
 
 import time
 import threading
+import os 
 
 import numpy as np
 
@@ -46,7 +47,7 @@ class IWRPublisher(Node):
         
         self.publisher_ = self.create_publisher(PointCloud2, 'pcl', 10)
         
-        self.get_logger().info("IWRPublisher.__init__(): Node started with timer period " + str(timer_period) + " s")
+        self.get_logger().info("IWRPublisher.__init__(): Node started")
 
     def on_configure(
         self, 
