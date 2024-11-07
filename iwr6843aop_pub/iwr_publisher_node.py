@@ -13,6 +13,7 @@ from iii_drone_configuration.configurator import Configurator
 import time
 import threading
 import os 
+import gc
 
 import numpy as np
 
@@ -109,12 +110,22 @@ class IWRPublisher(Node):
             return ret
         
         del self.iwr6843_interface
+        self.iwr6843_interface = None
+        
+        self.ti.close()
         del self.ti
+        self.ti = None
+        
         del self.cli_port
         del self.data_port
         del self.cfg_path
         del self.mmwave_frame_id
+        
+        self.configurator.cleanup()
         del self.configurator
+        self.configurator = None
+        
+        gc.collect()
         
         self.get_logger().info("IWRPublisher.on_cleanup(): Cleanup complete")
         
@@ -156,9 +167,13 @@ class IWRPublisher(Node):
             return ret
         
         self.timer.cancel()
+        self.timer.destroy()
         del self.timer
+        self.timer = None
         
         self.iwr6843_interface.stop()
+
+        gc.collect()
         
         self.get_logger().info("IWRPublisher.on_deactivate(): Deactivation complete")
         
@@ -176,11 +191,11 @@ class IWRPublisher(Node):
             self.get_logger().error("IWRPublisher.on_shutdown(): Base class shutdown failed")
             return ret
         
-        if hasattr(self, "configurator"):
-            del self.configurator
+        # if hasattr(self, "configurator"):
+        #     del self.configurator
 
-        if hasattr(self, "iwr6843_interface"):
-            self.iwr6843_interface.stop()
+        # if hasattr(self, "iwr6843_interface"):
+        #     self.iwr6843_interface.stop()
             
         def shutdown():
             time.sleep(1)
