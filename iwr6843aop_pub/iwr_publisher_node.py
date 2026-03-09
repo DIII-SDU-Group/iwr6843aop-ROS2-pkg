@@ -8,8 +8,6 @@ from rclpy.lifecycle import Node, State, TransitionCallbackReturn
 from std_msgs.msg import Header
 from sensor_msgs.msg import PointCloud2, PointField
 
-from iii_drone_configuration.configurator import Configurator
-
 import time
 import threading
 import os 
@@ -54,6 +52,13 @@ class IWRPublisher(Node):
                 self.get_logger().set_level(rclpy.logging.LoggingSeverity.FATAL)
         
         self.publisher_ = self.create_publisher(PointCloud2, 'pcl', 10)
+
+        # Standard ROS2 parameters so this node can run independently of
+        # iii_drone_configuration.
+        self.declare_parameter('cli_port', '/dev/mmWaveCli')
+        self.declare_parameter('data_port', '/dev/mmWaveData')
+        self.declare_parameter('cfg_path', '/home/iii/ws/src/iwr6843aop-ROS2-pkg/cfg_files/90deg_Group_18m_30Hz.cfg')
+        self.declare_parameter('mmwave_frame_id', 'mmwave')
         
         self.get_logger().info("IWRPublisher.__init__(): Initializing started")
 
@@ -69,12 +74,10 @@ class IWRPublisher(Node):
             self.get_logger().error("IWRPublisher.on_configure(): Base class configuration failed")
             return ret
         
-        self.configurator = Configurator(self)
-        
-        self.cli_port = self.configurator.get_parameter('cli_port').value
-        self.data_port = self.configurator.get_parameter('data_port').value
-        self.cfg_path = self.configurator.get_parameter('cfg_path').value
-        self.mmwave_frame_id = self.configurator.get_parameter('mmwave_frame_id').value
+        self.cli_port = self.get_parameter('cli_port').value
+        self.data_port = self.get_parameter('data_port').value
+        self.cfg_path = self.get_parameter('cfg_path').value
+        self.mmwave_frame_id = self.get_parameter('mmwave_frame_id').value
         
         self.get_logger().info("IWRPublisher.__init__(): Cli port: " + str(self.cli_port))
         self.get_logger().info("IWRPublisher.__init__(): Data port: " + str(self.data_port))
@@ -120,10 +123,6 @@ class IWRPublisher(Node):
         del self.data_port
         del self.cfg_path
         del self.mmwave_frame_id
-        
-        self.configurator.cleanup()
-        del self.configurator
-        self.configurator = None
         
         gc.collect()
         
@@ -221,8 +220,6 @@ class IWRPublisher(Node):
         
         self.iwr6843_interface.stop()
         del self.iwr6843_interface
-        
-        del self.configurator
 
     def timer_callback(self):
         self.get_logger().debug("IWRPublisher.timer_callback()")
