@@ -55,7 +55,7 @@ Another example: https://github.com/chopin1998/mmwave
    ```
 3. 'Add' a new display (lower left corner)
 4. Select 'By topic' ribbon
-5. Find 'iwr6843_pcl PointCloud2' and add it
+5. Find '/sensor/mmwave/points PointCloud2' and add it
 6. Edit 'Fixed Frame' to 'iwr6843_frame'. (use a 'static_transform_publisher' to transform to another frame)
 7. (Optional) Set point size at PointCloud2 -> Size (m) to 0.1 for better clarity
 
@@ -66,4 +66,3 @@ All functional code (for the purpose of this ROS package) is located at
    /iwr6843aop_pub/iwr6843aop_pub/publisher_member_function.py
    ```
 A number of .cfg files are provided which dictate the functionality of the mmWave device. More profiles can be made with the mmWave Demo Visualizer tool: https://dev.ti.com/gallery/view/mmwave/mmWave_Demo_Visualizer/ver/3.5.0/
-

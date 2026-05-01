@@ -51,7 +51,7 @@ class IWRPublisher(Node):
             elif log_level == 'FATAL':
                 self.get_logger().set_level(rclpy.logging.LoggingSeverity.FATAL)
         
-        self.publisher_ = self.create_publisher(PointCloud2, 'pcl', 10)
+        self.publisher_ = self.create_publisher(PointCloud2, 'points', 10)
 
         # Standard ROS2 parameters so this node can run independently of
         # iii_drone_configuration.
